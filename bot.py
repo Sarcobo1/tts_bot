@@ -1,7 +1,9 @@
 import os
 import logging
 import sqlite3
+import threading
 from datetime import datetime
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from dotenv import load_dotenv
 from telegram import Update
@@ -20,6 +22,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")                       # .env faylidan o'qilad
 ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID", "0"))      # .env faylidan o'qiladi
 USER_THRESHOLD = 10                                        # nechta user start bosgach alert yuborilsin
 DB_PATH = "bot_users.db"
+PORT = int(os.getenv("PORT", "10000"))                    # Render shu portni kutadi
 
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN topilmadi. .env faylida BOT_TOKEN=... qo'shing.")
@@ -36,6 +39,24 @@ logging.basicConfig(
     level=logging.INFO,
 )
 logger = logging.getLogger(__name__)
+
+
+# ================== RENDER UCHUN FAKE WEB SERVER ==================
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"Bot ishlayapti")
+
+    def log_message(self, format, *args):
+        pass  # HTTP loglarni o'chirish, faqat bot loglari ko'rinsin
+
+
+def run_health_server():
+    server = HTTPServer(("0.0.0.0", PORT), HealthCheckHandler)
+    logger.info(f"Health-check server {PORT}-portda ishga tushdi")
+    server.serve_forever()
 
 
 # ================== DATABASE ==================
@@ -175,6 +196,10 @@ async def synthesize_speech(text: str) -> str:
 # ================== ISHGA TUSHIRISH ==================
 def main():
     init_db()
+
+    # Render "web service" portni kutadi — shu uchun alohida threadda fake server
+    threading.Thread(target=run_health_server, daemon=True).start()
+
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
